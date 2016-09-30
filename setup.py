@@ -8,7 +8,7 @@ from setuptools import setup, find_packages
 here = path.abspath(path.dirname(__file__))
 
 # Parse the version from the mapbox module.
-with open('ipamcli/__init__.py') as f:
+with open('vsadmin/__init__.py') as f:
     for line in f:
         if line.find("__version__") >= 0:
             version = line.split("=")[1].strip()
@@ -24,7 +24,8 @@ with open(path.join(here, 'HISTORY.rst'), encoding='utf-8') as history_file:
 
 requirements = [
     'pyvmomi',
-    'click'
+    'click',
+    'requests'
 ]
 
 setup(
@@ -35,14 +36,10 @@ setup(
     author='Vadim Aleksandrov',
     author_email='valeksandrov@me.com',
     url='https://github.com/verdel/vsadmin',
-    test_suite='tests',
     packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
     entry_points={'console_scripts': ['vsadmin=vsadmin.cli:cli', ], },
     include_package_data=True,
     install_requires=requirements,
-    extras_require={
-        'test': ['responses'],
-    },
     keywords='vsadmin',
     license="MIT",
     classifiers=[
