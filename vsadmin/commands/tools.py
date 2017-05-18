@@ -68,6 +68,9 @@ class vCenter(object):
                   "specified username and password")
             sys.exit(1)
         atexit.register(connect.Disconnect, self.SI)
+
+        self.lastnetworkinfokey = self.get_customfield_key('LastNetworkInfo')
+
         self.vchtime = self.SI.CurrentTime()
 
         # Get all the performance counters
@@ -117,6 +120,14 @@ class vCenter(object):
         folder_tree = "/" + "/".join(folder_tree)
         return folder_tree
 
+    def get_customfield_key(self, name):
+        customFieldsManager = self.SI.RetrieveContent().customFieldsManager
+        customfield = next((item for item in customFieldsManager.field if item.name == name), None)
+        if customfield is not None:
+            return customfield.key
+        else:
+            return None
+
     def print_vm_info(self, vm, interval=20, verbose=False):
         statInt = interval * 3  # There are 3 20s samples in each minute
         summary = vm.summary
@@ -125,7 +136,7 @@ class vCenter(object):
         for each_vm_hardware in vm_hardware.device:
             if (each_vm_hardware.key >= 2000) and (each_vm_hardware.key < 3000):
                 disk_list.append('{} | {:.1f}GB | Thin: {} | {}'.format(each_vm_hardware.deviceInfo.label,
-                                                                        each_vm_hardware.capacityInKB/1024/1024,
+                                                                        each_vm_hardware.capacityInKB / 1024 / 1024,
                                                                         each_vm_hardware.backing.thinProvisioned,
                                                                         each_vm_hardware.backing.fileName))
 
@@ -172,6 +183,11 @@ class vCenter(object):
             for dns in vm.guest.ipStack[0].dnsConfig.ipAddress:
                 print("                     Address: {}".format(dns))
             print("                     Search Domain: {}".format(vm.guest.ipStack[0].dnsConfig.domainName))
+
+        customfields = next((item for item in summary.customValue if item.key == self.lastnetworkinfokey), None)
+        if customfields is not None and customfields.value != "":
+            print("Last Network Info  : {}".format(customfields.value))
+
         if summary.runtime.question is not None:
             print("Question  : ", summary.runtime.question.text)
 
@@ -200,7 +216,7 @@ class vCenter(object):
                 vmmemres = "{} MB".format(vm.resourceConfig.memoryAllocation.reservation)
 
             #CPU Ready Average
-            statCpuReady = self.build_perf_query(self.SI.content,self.vchtime, (self.stat_check(self.perf_dict, 'cpu.ready.summation')), "", vm, interval)
+            statCpuReady = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'cpu.ready.summation')), "", vm, interval)
             cpuReady = (float(sum(statCpuReady[0].value[0].value)) / statInt)
             #CPU Usage Average % - NOTE: values are type LONG so needs divided by 100 for percentage
             statCpuUsage = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'cpu.usage.average')), "", vm, interval)
@@ -218,18 +234,14 @@ class vCenter(object):
             statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, interval)
             memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
             #Datastore Average IO
-            statDatastoreIoRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average')),
-                                             "*", vm, interval)
+            statDatastoreIoRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average')), "*", vm, interval)
             DatastoreIoRead = (float(sum(statDatastoreIoRead[0].value[0].value)) / statInt)
-            statDatastoreIoWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average')),
-                                              "*", vm, interval)
+            statDatastoreIoWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average')), "*", vm, interval)
             DatastoreIoWrite = (float(sum(statDatastoreIoWrite[0].value[0].value)) / statInt)
             #Datastore Average Latency
-            statDatastoreLatRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average')),
-                                              "*", vm, interval)
+            statDatastoreLatRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average')), "*", vm, interval)
             DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
-            statDatastoreLatWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average')),
-                                               "*", vm, interval)
+            statDatastoreLatWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average')), "*", vm, interval)
             DatastoreLatWrite = (float(sum(statDatastoreLatWrite[0].value[0].value)) / statInt)
 
             #Network usage (Tx/Rx)
@@ -237,13 +249,13 @@ class vCenter(object):
             networkTx = (float(sum(statNetworkTx[0].value[0].value) * 8 / 1024) / statInt)
             statNetworkRx = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'net.received.average')), "", vm, interval)
             networkRx = (float(sum(statNetworkRx[0].value[0].value) * 8 / 1024) / statInt)
-            
+
             print("")
             print("NOTE: Any VM statistics are averages of the last {} minutes".format(statInt / 3))
             print("[VM Advanced] Limits                    : CPU: {}, Memory: {}".format(vmcpulimit, vmmemlimit))
             print("[VM Advanced] Reservations              : CPU: {}, Memory: {}".format(vmcpures, vmmemres))
             print("[VM Advanced] CPU Ready                 : Average {:.1f} %, Maximum {:.1f} %".format((cpuReady / 20000 * 100),
-                                                                                               (        (float(max(statCpuReady[0].value[0].value)) / 20000 * 100))))
+                                                                                                        ((float(max(statCpuReady[0].value[0].value)) / 20000 * 100))))
             print("[VM Advanced] CPU (%)                   : {:.0f} %".format(cpuUsage))
             print("[VM Advanced] Memory Shared             : {:.0f} %, {:.0f} MB".format(
                 ((memoryShared / summary.config.memorySizeMB) * 100), memoryShared))
@@ -253,22 +265,17 @@ class vCenter(object):
                 ((memorySwapped / summary.config.memorySizeMB) * 100), memorySwapped))
             print("[VM Advanced] Memory Active             : {:.0f} %, {:.0f} MB".format(
                 ((memoryActive / summary.config.memorySizeMB) * 100), memoryActive))
-            print("[VM Advanced] Datastore Average IO      : Read: {:.0f} IOPS, Write: {:.0f} IOPS".format(DatastoreIoRead,
-                                                                                                  DatastoreIoWrite))
-            print("[VM Advanced] Datastore Average Latency : Read: {:.0f} ms, Write: {:.0f} ms".format(DatastoreLatRead,
-                                                                                              DatastoreLatWrite))
+            print("[VM Advanced] Datastore Average IO      : Read: {:.0f} IOPS, Write: {:.0f} IOPS".format(DatastoreIoRead, DatastoreIoWrite))
+            print("[VM Advanced] Datastore Average Latency : Read: {:.0f} ms, Write: {:.0f} ms".format(DatastoreLatRead, DatastoreLatWrite))
             print("[VM Advanced] Overall Network Usage     : Transmitted {:.3f} Mbps, Received {:.3f} Mbps".format(networkTx, networkRx))
 
             print("")
-            print("[Host] CPU Detail                       : Processor Sockets: {}, Cores per Socket {}".format(summary.runtime.host.summary.hardware.numCpuPkgs,
-                                                                                                      (summary.runtime.host.summary.hardware.numCpuCores / summary.runtime.host.summary.hardware.numCpuPkgs)))
+            print("[Host] CPU Detail                       : Processor Sockets: {}, Cores per Socket {}".format(summary.runtime.host.summary.hardware.numCpuPkgs, (summary.runtime.host.summary.hardware.numCpuCores / summary.runtime.host.summary.hardware.numCpuPkgs)))
             print("[Host] CPU Type                         : {}".format(summary.runtime.host.summary.hardware.cpuModel))
-            print("[Host] CPU Usage                        : Used: {} Mhz, Total: {} Mhz".format(summary.runtime.host.summary.quickStats.overallCpuUsage,
-                                                                           (summary.runtime.host.summary.hardware.cpuMhz * summary.runtime.host.summary.hardware.numCpuCores)))
-            print("[Host] Memory Usage                     : Used: {:.0f} GB, Total: {:.0f} GB".format((float(summary.runtime.host.summary.quickStats.overallMemoryUsage) / 1024),
-                                                                                     (float(summary.runtime.host.summary.hardware.memorySize) / 1024 / 1024 / 1024)))
+            print("[Host] CPU Usage                        : Used: {} Mhz, Total: {} Mhz".format(summary.runtime.host.summary.quickStats.overallCpuUsage, (summary.runtime.host.summary.hardware.cpuMhz * summary.runtime.host.summary.hardware.numCpuCores)))
+            print("[Host] Memory Usage                     : Used: {:.0f} GB, Total: {:.0f} GB".format((float(summary.runtime.host.summary.quickStats.overallMemoryUsage) / 1024), (float(summary.runtime.host.summary.hardware.memorySize) / 1024 / 1024 / 1024)))
             print("[Host] License                          : {}".format(self.SI.content.licenseManager.licenseAssignmentManager.QueryAssignedLicenses(summary.runtime.host._moId)[0].assignedLicense.name))
-        print("")
+            print("")
 
     def search_vm_by_name(self, name, method='exact'):
         content = self.SI.content
@@ -292,14 +299,29 @@ class vCenter(object):
 
     def search_vm_by_ip(self, ip):
         obj = []
+        content = self.SI.content
+        root_folder = content.rootFolder
+
         if not NetworkCheck.checkIP(ip):
             print("IP address {} is invalid.".format(ip))
             return obj
-        search_obj = self.SI.content.searchIndex.FindByIp(None,
-                                                          ip,
-                                                          True)
+        search_obj = content.searchIndex.FindByIp(None,
+                                                  ip,
+                                                  True)
         if search_obj:
             obj.append(search_obj)
+
+        objView = content.viewManager.CreateContainerView(root_folder,
+                                                          [vim.VirtualMachine],
+                                                          True)
+        vmList = objView.view
+        for vm in vmList:
+            summary = vm.summary
+            customfields = next((item for item in summary.customValue if item.key == self.lastnetworkinfokey), None)
+            if customfields is not None and customfields.value != "":
+                if ip in customfields.value:
+                    if vm not in obj:
+                        obj.append(vm)
         return obj
 
     def search_vm_by_mac(self, mac):

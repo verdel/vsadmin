@@ -14,7 +14,6 @@ from vsadmin.commands.tools import vCenter
 @click.option('--task', metavar='<Service Desk Task ID>', help='service desk task id of vm entry to search')
 @click.option('-i', '--interval', metavar='<Int>', default=20, show_default=True, help='interval in minutes to average the vSphere stats over')
 @click.option('-v', '--verbose', is_flag=True, help='show advanced information about virtual machine')
-
 @pass_context
 def cli(ctx, name, contains, mac, ip, hostname, task, verbose, interval):
     """Search vm entry information in vCenter."""
