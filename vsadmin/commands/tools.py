@@ -120,6 +120,10 @@ class vCenter(object):
         folder_tree = "/" + "/".join(folder_tree)
         return folder_tree
 
+    @staticmethod
+    def get_moref(obj):
+        return str(obj).split(":")[1].strip("'")
+
     def get_customfield_key(self, name):
         customFieldsManager = self.SI.RetrieveContent().customFieldsManager
         customfield = next((item for item in customFieldsManager.field if item.name == name), None)
@@ -147,6 +151,7 @@ class vCenter(object):
 
         print("UUID               : {}".format(summary.config.instanceUuid))
         print("Name               : {}".format(summary.config.name))
+        print("VMRC               : vmrc://{}:443/?moid={}".format(self.server, self.get_moref(vm)))
         print("Guest              : {}".format(summary.config.guestFullName))
         print("State              : {}".format(summary.runtime.powerState))
         print("Guest Tools Status : Status: {} | Version Status: {} | Version: {} | Health: {}".format(guestToolsRunningStatus, guestToolsVersionStatus, guestToolsVersion, guestToolsStatus))
@@ -215,36 +220,35 @@ class vCenter(object):
             else:
                 vmmemres = "{} MB".format(vm.resourceConfig.memoryAllocation.reservation)
 
-            #CPU Ready Average
+            # CPU Ready Average
             statCpuReady = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'cpu.ready.summation')), "", vm, interval)
             cpuReady = (float(sum(statCpuReady[0].value[0].value)) / statInt)
-            #CPU Usage Average % - NOTE: values are type LONG so needs divided by 100 for percentage
+            # CPU Usage Average % - NOTE: values are type LONG so needs divided by 100 for percentage
             statCpuUsage = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'cpu.usage.average')), "", vm, interval)
             cpuUsage = ((float(sum(statCpuUsage[0].value[0].value)) / statInt) / 100)
-            #Memory Active Average MB
+            # Memory Active Average MB
             statMemoryActive = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.active.average')), "", vm, interval)
             memoryActive = (float(sum(statMemoryActive[0].value[0].value) / 1024) / statInt)
-            #Memory Shared
+            # Memory Shared
             statMemoryShared = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.shared.average')), "", vm, interval)
             memoryShared = (float(sum(statMemoryShared[0].value[0].value) / 1024) / statInt)
-            #Memory Balloon
+            # Memory Balloon
             statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, interval)
             memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
-            #Memory Swapped
+            # Memory Swapped
             statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, interval)
             memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
-            #Datastore Average IO
+            # Datastore Average IO
             statDatastoreIoRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average')), "*", vm, interval)
             DatastoreIoRead = (float(sum(statDatastoreIoRead[0].value[0].value)) / statInt)
             statDatastoreIoWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average')), "*", vm, interval)
             DatastoreIoWrite = (float(sum(statDatastoreIoWrite[0].value[0].value)) / statInt)
-            #Datastore Average Latency
+            # Datastore Average Latency
             statDatastoreLatRead = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average')), "*", vm, interval)
             DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
             statDatastoreLatWrite = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average')), "*", vm, interval)
             DatastoreLatWrite = (float(sum(statDatastoreLatWrite[0].value[0].value)) / statInt)
-
-            #Network usage (Tx/Rx)
+            # Network usage (Tx/Rx)
             statNetworkTx = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'net.transmitted.average')), "", vm, interval)
             networkTx = (float(sum(statNetworkTx[0].value[0].value) * 8 / 1024) / statInt)
             statNetworkRx = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'net.received.average')), "", vm, interval)
