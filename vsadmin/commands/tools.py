@@ -9,6 +9,17 @@ import re
 import sys
 
 
+class bcolors(object):
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
 class vCenterException(RuntimeError):
     message = None
 
@@ -82,6 +93,22 @@ class vCenter(object):
                                              counter.rollupType)
             self.perf_dict[counter_full] = counter.key
 
+    def get_metric_with_instance(self, content, vm, vchtime, interval):
+        perfManager = content.perfManager
+        startTime = vchtime - timedelta(minutes=(interval + 1))
+        endTime = vchtime - timedelta(minutes=1)
+        metricId = perfManager.QueryAvailablePerfMetric(vm, startTime, endTime, interval)
+        return metricId
+
+    def get_virtualdisk_scsi(self, vm, virtualdisk):
+        controllerID = virtualdisk.controllerKey
+        unitNumber = virtualdisk.unitNumber
+        vm_hardware = vm.config.hardware
+        for vm_hardware_device in vm_hardware.device:
+            if vm_hardware_device.key == controllerID:
+                busNumber = vm_hardware_device.busNumber
+        return "scsi{}:{}".format(busNumber, unitNumber)
+
     def build_perf_query(self, content, vchtime, counterId, instance, vm, interval):
         perfManager = content.perfManager
         metricId = vim.PerformanceManager.MetricId(counterId=counterId,
@@ -139,33 +166,146 @@ class vCenter(object):
         vm_hardware = vm.config.hardware
         for each_vm_hardware in vm_hardware.device:
             if (each_vm_hardware.key >= 2000) and (each_vm_hardware.key < 3000):
-                disk_list.append('{} | {:.1f}GB | Thin: {} | {}'.format(each_vm_hardware.deviceInfo.label,
-                                                                        each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                        each_vm_hardware.backing.thinProvisioned,
-                                                                        each_vm_hardware.backing.fileName))
+                if summary.runtime.powerState == "poweredOn":
+                    # Datastore Average IO
+                    statDatastoreIORead = self.build_perf_query(self.SI.content,
+                                                                self.vchtime,
+                                                                self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average'),
+                                                                each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                vm,
+                                                                interval)
+                    DatastoreIORead = (float(sum(statDatastoreIORead[0].value[0].value)) / statInt)
 
-        guestToolsRunningStatus = "Running" if vm.guest.toolsRunningStatus == "guestToolsRunning" else "Not running"
-        guestToolsStatus = "OK" if vm.guest.toolsStatus == "toolsOk" else "Need Attention"
-        guestToolsVersionStatus = "Current" if vm.guest.toolsVersionStatus == "guestToolsCurrent" else "Need upgrade"
+                    statDatastoreIOWrite = self.build_perf_query(self.SI.content,
+                                                                 self.vchtime,
+                                                                 self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average'),
+                                                                 each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                 vm,
+                                                                 interval)
+                    DatastoreIOWrite = (float(sum(statDatastoreIOWrite[0].value[0].value)) / statInt)
+
+                    # Datastore Average Latency
+                    statDatastoreLatRead = self.build_perf_query(self.SI.content,
+                                                                 self.vchtime,
+                                                                 self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average'),
+                                                                 each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                 vm,
+                                                                 interval)
+                    DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
+                    DatastoreLatRead = "{:.0f}".format(DatastoreLatRead) if DatastoreLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatRead, bcolors.ENDC)
+
+                    statDatastoreLatWrite = self.build_perf_query(self.SI.content,
+                                                                  self.vchtime,
+                                                                  self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average'),
+                                                                  each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                  vm,
+                                                                  interval)
+                    DatastoreLatWrite = (float(sum(statDatastoreLatWrite[0].value[0].value)) / statInt)
+                    DatastoreLatWrite = "{:.0f}".format(DatastoreLatWrite) if DatastoreLatWrite < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatWrite, bcolors.ENDC)
+
+                    # VirtualDisk Average IO
+                    statVirtualdiskIORead = self.build_perf_query(self.SI.content,
+                                                                  self.vchtime,
+                                                                  self.stat_check(self.perf_dict, 'virtualDisk.numberReadAveraged.average'),
+                                                                  self.get_virtualdisk_scsi(vm, each_vm_hardware),
+                                                                  vm,
+                                                                  interval)
+                    VirtualdiskIORead = (float(sum(statVirtualdiskIORead[0].value[0].value)) / statInt)
+
+                    statVirtualdiskIOWrite = self.build_perf_query(self.SI.content,
+                                                                   self.vchtime,
+                                                                   self.stat_check(self.perf_dict, 'virtualDisk.numberWriteAveraged.average'),
+                                                                   self.get_virtualdisk_scsi(vm, each_vm_hardware),
+                                                                   vm,
+                                                                   interval)
+                    VirtualdiskIOWrite = (float(sum(statVirtualdiskIOWrite[0].value[0].value)) / statInt)
+
+                    # VirtualDisk Average Latency
+                    statVirtualdiskLatRead = self.build_perf_query(self.SI.content,
+                                                                   self.vchtime,
+                                                                   self.stat_check(self.perf_dict, 'virtualDisk.totalReadLatency.average'),
+                                                                   self.get_virtualdisk_scsi(vm, each_vm_hardware),
+                                                                   vm,
+                                                                   interval)
+                    VirtualdiskLatRead = (float(sum(statVirtualdiskLatRead[0].value[0].value)) / statInt)
+                    VirtualdiskLatRead = "{:.0f}".format(VirtualdiskLatRead) if VirtualdiskLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, VirtualdiskLatRead, bcolors.ENDC)
+
+                    statVirtualdiskLatWrite = self.build_perf_query(self.SI.content,
+                                                                    self.vchtime,
+                                                                    self.stat_check(self.perf_dict, 'virtualDisk.totalWriteLatency.average'),
+                                                                    self.get_virtualdisk_scsi(vm, each_vm_hardware),
+                                                                    vm,
+                                                                    interval)
+                    VirtualdiskLatWrite = (float(sum(statVirtualdiskLatWrite[0].value[0].value)) / statInt)
+                    VirtualdiskLatWrite = "{:.0f}".format(VirtualdiskLatWrite) if VirtualdiskLatWrite < 25 else "{}{:.0f}{}".format(bcolors.FAIL, VirtualdiskLatWrite, bcolors.ENDC)
+
+                    # Memory Balloon
+                    statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, interval)
+                    memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
+                    memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon == 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
+
+                    # Memory Swapped
+                    statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, interval)
+                    memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
+                    memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped == 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
+
+                    disk_list.append('Name: {} \r\n'
+                                     '                     Size: {:.1f} GB \r\n'
+                                     '                     Thin: {} \r\n'
+                                     '                     File: {}\r\n'
+                                     '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'
+                                     '                     Datastore: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms'.format(each_vm_hardware.deviceInfo.label,
+                                                                                                                                                     each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                                                                                     each_vm_hardware.backing.thinProvisioned,
+                                                                                                                                                     each_vm_hardware.backing.fileName,
+                                                                                                                                                     VirtualdiskIORead,
+                                                                                                                                                     VirtualdiskIOWrite,
+                                                                                                                                                     VirtualdiskLatRead,
+                                                                                                                                                     VirtualdiskLatWrite,
+                                                                                                                                                     DatastoreIORead,
+                                                                                                                                                     DatastoreIOWrite,
+                                                                                                                                                     DatastoreLatRead,
+                                                                                                                                                     DatastoreLatWrite))
+                    memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
+                else:
+                    disk_list.append('Name: {} \r\n'
+                                     '                     Size: {:.1f} GB \r\n'
+                                     '                     Thin: {} \r\n'
+                                     '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
+                                                                            each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                            each_vm_hardware.backing.thinProvisioned,
+                                                                            each_vm_hardware.backing.fileName))
+
+                    memory = "{} MB ({:.1f} GB)".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024))
+
+        guestToolsRunningStatus = "{}{}{}".format(bcolors.OKGREEN, "Running", bcolors.ENDC) if vm.guest.toolsRunningStatus == "guestToolsRunning" else "{}{}{}".format(bcolors.FAIL, "Not running", bcolors.ENDC)
+        guestToolsStatus = "{}{}{}".format(bcolors.OKGREEN, "OK", bcolors.ENDC) if vm.guest.toolsStatus == "toolsOk" else "{}{}{}".format(bcolors.FAIL, "Need Attention", bcolors.ENDC)
+        guestToolsVersionStatus = "{}{}{}".format(bcolors.OKGREEN, "Current", bcolors.ENDC) if vm.guest.toolsVersionStatus == "guestToolsCurrent" else "{}{}{}".format(bcolors.WARNING, "Need upgrade", bcolors.ENDC)
         guestToolsVersion = vm.guest.toolsVersion
+
+        powerStatus = "{}{}{}".format(bcolors.OKGREEN, summary.runtime.powerState, bcolors.ENDC) if summary.runtime.powerState == "poweredOn" else "{}{}{}".format(bcolors.FAIL, summary.runtime.powerState, bcolors.ENDC)
 
         print("UUID               : {}".format(summary.config.instanceUuid))
         print("Name               : {}".format(summary.config.name))
         print("VMRC               : vmrc://{}:443/?moid={}".format(self.server, self.get_moref(vm)))
         print("Guest              : {}".format(summary.config.guestFullName))
-        print("State              : {}".format(summary.runtime.powerState))
+        print("State              : {}".format(powerStatus))
         print("Guest Tools Status : Status: {} | Version Status: {} | Version: {} | Health: {}".format(guestToolsRunningStatus, guestToolsVersionStatus, guestToolsVersion, guestToolsStatus))
         print("Cluster            : {}".format(summary.runtime.host.parent.name))
         print("Host               : {}".format(summary.runtime.host.name))
         print("Folder             : {}".format(self.print_folder_tree(vm)))
         print("Number of vCPUs    : {}".format(summary.config.numCpu))
-        print("Memory             : {} MB ({:.1f} GB)".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024)))
+        print("Memory             : {}".format(memory))
         print("VM .vmx Path       : {}".format(summary.config.vmPathName))
 
-        print("Virtual Disks      : {}".format(disk_list[0]))
-        if len(disk_list) > 1:
-            disk_list.pop(0)
+        print("Virtual Disks      :")
+        if len(disk_list) > 0:
+            first = True
             for each_disk in disk_list:
+                if first:
+                    first = False
+                else:
+                    print("")
                 print("                     {}".format(each_disk))
 
         if vm.guest.net != []:
@@ -199,6 +339,10 @@ class vCenter(object):
         annotation = summary.config.annotation
         if annotation is not None and annotation != "":
             print("Notes              : %s" % annotation.encode('utf-8'))
+
+        # metrics = self.get_metric_with_instance(self.SI.content, vm, self.vchtime, interval)
+        # for metric in metrics:
+        #     print("ID: {}, Instance: {}".format(self.perf_dict.keys()[self.perf_dict.values().index(metric.counterId)], metric.instance))
 
         if verbose:
             # Convert limit and reservation values from -1 to None
