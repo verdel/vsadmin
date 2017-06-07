@@ -242,12 +242,12 @@ class vCenter(object):
                     # Memory Balloon
                     statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, interval)
                     memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
-                    memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon == 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
+                    memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon <= 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
 
                     # Memory Swapped
                     statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, interval)
                     memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
-                    memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped == 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
+                    memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped <= 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
 
                     disk_list.append('Name: {} \r\n'
                                      '                     Size: {:.1f} GB \r\n'
