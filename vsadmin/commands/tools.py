@@ -311,8 +311,9 @@ class vCenter(object):
         if vm.guest.net != []:
             print("Network            : ")
             for card in vm.guest.net:
+                hwdevice = next((item for item in vm.config.hardware.device if item.key == card.deviceConfigId), None)
                 print("                     Name: {}".format(card.network))
-                print("                     Connected: {}".format(card.connected))
+                print("                     Connected: {}".format(hwdevice.connectable.connected))
                 print("                     Mac: {}".format(card.macAddress))
                 if card.ipConfig is not None:
                     for ips in card.ipConfig.ipAddress:
