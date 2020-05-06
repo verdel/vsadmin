@@ -2,7 +2,7 @@
 import sys
 import click
 from vsadmin.cli import pass_context
-from vsadmin.commands.tools import vCenter
+from vsadmin.tools.tools import vCenter
 
 
 @click.command('search', short_help='search vm')
