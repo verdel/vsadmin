@@ -221,7 +221,7 @@ class vCenter(object):
                                                                   self.stat_check(self.perf_dict, 'virtualDisk.numberReadAveraged.average'),
                                                                   self.get_virtualdisk_scsi(vm, each_vm_hardware),
                                                                   vm,
-                                                                  perf_interval)
+                                                                  statInt)
                     VirtualdiskIORead = (float(sum(statVirtualdiskIORead[0].value[0].value)) / statInt)
 
                     statVirtualdiskIOWrite = self.build_perf_query(self.SI.content,
@@ -229,7 +229,7 @@ class vCenter(object):
                                                                    self.stat_check(self.perf_dict, 'virtualDisk.numberWriteAveraged.average'),
                                                                    self.get_virtualdisk_scsi(vm, each_vm_hardware),
                                                                    vm,
-                                                                   perf_interval)
+                                                                   statInt)
                     VirtualdiskIOWrite = (float(sum(statVirtualdiskIOWrite[0].value[0].value)) / statInt)
 
                     # VirtualDisk Average Latency
@@ -238,7 +238,7 @@ class vCenter(object):
                                                                    self.stat_check(self.perf_dict, 'virtualDisk.totalReadLatency.average'),
                                                                    self.get_virtualdisk_scsi(vm, each_vm_hardware),
                                                                    vm,
-                                                                   perf_interval)
+                                                                   statInt)
                     VirtualdiskLatRead = (float(sum(statVirtualdiskLatRead[0].value[0].value)) / statInt)
                     VirtualdiskLatRead = "{:.0f}".format(VirtualdiskLatRead) if VirtualdiskLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, VirtualdiskLatRead, bcolors.ENDC)
 
@@ -247,7 +247,7 @@ class vCenter(object):
                                                                     self.stat_check(self.perf_dict, 'virtualDisk.totalWriteLatency.average'),
                                                                     self.get_virtualdisk_scsi(vm, each_vm_hardware),
                                                                     vm,
-                                                                    perf_interval)
+                                                                    statInt)
                     VirtualdiskLatWrite = (float(sum(statVirtualdiskLatWrite[0].value[0].value)) / statInt)
                     VirtualdiskLatWrite = "{:.0f}".format(VirtualdiskLatWrite) if VirtualdiskLatWrite < 25 else "{}{:.0f}{}".format(bcolors.FAIL, VirtualdiskLatWrite, bcolors.ENDC)
 
@@ -258,7 +258,7 @@ class vCenter(object):
                                                                     self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
                                                                     vm,
-                                                                    perf_interval)
+                                                                    statInt)
                         DatastoreIORead = (float(sum(statDatastoreIORead[0].value[0].value)) / statInt)
 
                         statDatastoreIOWrite = self.build_perf_query(self.SI.content,
@@ -266,7 +266,7 @@ class vCenter(object):
                                                                     self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
                                                                     vm,
-                                                                    perf_interval)
+                                                                    statInt)
                         DatastoreIOWrite = (float(sum(statDatastoreIOWrite[0].value[0].value)) / statInt)
 
                         # Datastore Average Latency
@@ -275,7 +275,7 @@ class vCenter(object):
                                                                     self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
                                                                     vm,
-                                                                    perf_interval)
+                                                                    statInt)
                         DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
                         DatastoreLatRead = "{:.0f}".format(DatastoreLatRead) if DatastoreLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatRead, bcolors.ENDC)
 
@@ -284,7 +284,7 @@ class vCenter(object):
                                                                     self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
                                                                     vm,
-                                                                    perf_interval)
+                                                                    statInt)
                         DatastoreLatWrite = (float(sum(statDatastoreLatWrite[0].value[0].value)) / statInt)
                         DatastoreLatWrite = "{:.0f}".format(DatastoreLatWrite) if DatastoreLatWrite < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatWrite, bcolors.ENDC)
 
@@ -320,12 +320,12 @@ class vCenter(object):
                                                                                                                                                             VirtualdiskLatRead,
                                                                                                                                                             VirtualdiskLatWrite))
                     # Memory Balloon
-                    statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, perf_interval)
+                    statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, statInt)
                     memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
                     memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon <= 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
 
                     # Memory Swapped
-                    statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, perf_interval)
+                    statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, statInt)
                     memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
                     memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped <= 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
                     memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
@@ -374,9 +374,10 @@ class vCenter(object):
         if vm.guest.net != []:
             print("Network            : ")
             for card in vm.guest.net:
-                hwdevice = next((item for item in vm.config.hardware.device if item.key == card.deviceConfigId), None)
                 print("                     Name: {}".format(card.network))
-                print("                     Connected: {}".format(hwdevice.connectable.connected))
+                if card.deviceConfigId != -1:
+                    hwdevice = next((item for item in vm.config.hardware.device if item.key == card.deviceConfigId), None)
+                    print("                     Connected: {}".format(hwdevice.connectable.connected))
                 print("                     Mac: {}".format(card.macAddress))
                 if card.ipConfig is not None:
                     for ips in card.ipConfig.ipAddress:
