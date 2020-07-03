@@ -18,7 +18,7 @@ from vsadmin.tools.tools import vCenter
 @pass_context
 def cli(ctx, name, contains, mac, ip, custom_fields, hostname, task, verbose, interval):
     """Search vm entry information in vCenter."""
-    vc = vCenter(ctx.server, ctx.username, ctx.password)
+    vc = vCenter(ctx.server, ctx.username, ctx.password, ctx.disable_ssl_verification)
     vm = None
     if name:
         if contains:

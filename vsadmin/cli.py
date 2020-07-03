@@ -58,9 +58,13 @@ class ComplexCLI(click.MultiCommand):
               help='Password for vSphere.')
 @click.option('-s', '--server', default='vc02.rk.local',
               show_default=True, help='vCenter address.')
+@click.option('--disable-ssl-verification', default=True,
+              show_default=True, help='Disable SSL verification.')
+
 @pass_context
-def cli(ctx, username, password, server):
+def cli(ctx, username, password, server, disable_ssl_verification):
     """Console utility for Vmware vSphere management."""
     ctx.username = username
     ctx.password = password
     ctx.server = server
+    ctx.disable_ssl_verification = disable_ssl_verification

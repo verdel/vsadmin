@@ -8,7 +8,7 @@ import vsadmin.tools.vsanapiutils
 import vsadmin.tools.vsanmgmtObjects
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from pyVmomi import vim
-from pyVim.connect import SmartConnectNoSSL, Disconnect
+from pyVim.connect import SmartConnect, SmartConnectNoSSL, Disconnect
 from datetime import timedelta
 
 
@@ -61,49 +61,41 @@ class NetworkCheck(object):
 
 
 class vCenter(object):
-    def __init__(self, server, username, password):
+    def __init__(self, server, username, password, disable_ssl_verification):
         self.server = server
         self.username = username
         self.password = password
-        self.SI = None
-
-        #For python 2.7.9 and later, the defaul SSL context has more strict
-        #connection handshaking rule. We may need turn of the hostname checking
-        #and client side cert verification
-        self.context = None
-        if sys.version_info[:3] > (2,7,8):
-            self.context = ssl.create_default_context()
-            self.context.check_hostname = False
-            self.context.verify_mode = ssl.CERT_NONE
-
-        # Disabling the annoying InsecureRequestWarning message
-        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
+        self.disable_ssl_verification = disable_ssl_verification
+        self.serviceInstance = None
         try:
-            self.SI = SmartConnectNoSSL(host=self.server,
-                                        user=self.username,
-                                        pwd=self.password)
-        except Exception as e:
+            if disable_ssl_verification:
+                self.serviceInstance = SmartConnectNoSSL(host=self.server,
+                                                         user=self.username,
+                                                         pwd=self.password)
+            else:
+                self.serviceInstance = SmartConnect(host=self.server,
+                                                    user=self.username,
+                                                    pwd=self.password)
+            atexit.register(Disconnect, self.serviceInstance)
+        except IOError as e:
             print(e)
+            pass
+        if not self.serviceInstance:
+            raise SystemExit("Unable to connect to host with supplied info.")
 
-        if not self.SI:
-            print("Could not connect to the specified host using "
-                  "specified username and password")
-            sys.exit(1)
-        atexit.register(Disconnect, self.SI)
 
         self.lastnetworkinfokey = self.get_customfield_key('LastNetworkInfo')
 
-        self.vchtime = self.SI.CurrentTime()
+        self.vchtime = self.serviceInstance.CurrentTime()
 
         apiVersion = vsadmin.tools.vsanapiutils.GetLatestVmodlVersion(self.server)
-        vcMos = vsadmin.tools.vsanapiutils.GetVsanVcMos(self.SI._stub, context=self.context, version=apiVersion)
+        vcMos = vsadmin.tools.vsanapiutils.GetVsanVcMos(self.serviceInstance._stub, version=apiVersion)
 
         self.vsanPerfSystem = vcMos['vsan-performance-manager']
 
         # Get all the performance counters
         self.perf_dict = {}
-        perfList = self.SI.content.perfManager.perfCounter
+        perfList = self.serviceInstance.content.perfManager.perfCounter
         for counter in perfList:
             counter_full = "{}.{}.{}".format(counter.groupInfo.key,
                                              counter.nameInfo.key,
@@ -200,7 +192,7 @@ class vCenter(object):
         return str(obj).split(":")[1].strip("'")
 
     def get_customfield_key(self, name):
-        customFieldsManager = self.SI.RetrieveContent().customFieldsManager
+        customFieldsManager = self.serviceInstance.RetrieveContent().customFieldsManager
         customfield = next((item for item in customFieldsManager.field if item.name == name), None)
         if customfield is not None:
             return customfield.key
@@ -216,7 +208,7 @@ class vCenter(object):
             if (each_vm_hardware.key >= 2000) and (each_vm_hardware.key < 3000):
                 if summary.runtime.powerState == "poweredOn" and verbose:
                     # VirtualDisk Average IO
-                    statVirtualdiskIORead = self.build_perf_query(self.SI.content,
+                    statVirtualdiskIORead = self.build_perf_query(self.serviceInstance.content,
                                                                   self.vchtime,
                                                                   self.stat_check(self.perf_dict, 'virtualDisk.numberReadAveraged.average'),
                                                                   self.get_virtualdisk_scsi(vm, each_vm_hardware),
@@ -224,7 +216,7 @@ class vCenter(object):
                                                                   statInt)
                     VirtualdiskIORead = (float(sum(statVirtualdiskIORead[0].value[0].value)) / statInt)
 
-                    statVirtualdiskIOWrite = self.build_perf_query(self.SI.content,
+                    statVirtualdiskIOWrite = self.build_perf_query(self.serviceInstance.content,
                                                                    self.vchtime,
                                                                    self.stat_check(self.perf_dict, 'virtualDisk.numberWriteAveraged.average'),
                                                                    self.get_virtualdisk_scsi(vm, each_vm_hardware),
@@ -233,7 +225,7 @@ class vCenter(object):
                     VirtualdiskIOWrite = (float(sum(statVirtualdiskIOWrite[0].value[0].value)) / statInt)
 
                     # VirtualDisk Average Latency
-                    statVirtualdiskLatRead = self.build_perf_query(self.SI.content,
+                    statVirtualdiskLatRead = self.build_perf_query(self.serviceInstance.content,
                                                                    self.vchtime,
                                                                    self.stat_check(self.perf_dict, 'virtualDisk.totalReadLatency.average'),
                                                                    self.get_virtualdisk_scsi(vm, each_vm_hardware),
@@ -242,7 +234,7 @@ class vCenter(object):
                     VirtualdiskLatRead = (float(sum(statVirtualdiskLatRead[0].value[0].value)) / statInt)
                     VirtualdiskLatRead = "{:.0f}".format(VirtualdiskLatRead) if VirtualdiskLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, VirtualdiskLatRead, bcolors.ENDC)
 
-                    statVirtualdiskLatWrite = self.build_perf_query(self.SI.content,
+                    statVirtualdiskLatWrite = self.build_perf_query(self.serviceInstance.content,
                                                                     self.vchtime,
                                                                     self.stat_check(self.perf_dict, 'virtualDisk.totalWriteLatency.average'),
                                                                     self.get_virtualdisk_scsi(vm, each_vm_hardware),
@@ -253,7 +245,7 @@ class vCenter(object):
 
                     if each_vm_hardware.backing.datastore.summary.type != 'vsan':
                         # Datastore Average IO
-                        statDatastoreIORead = self.build_perf_query(self.SI.content,
+                        statDatastoreIORead = self.build_perf_query(self.serviceInstance.content,
                                                                     self.vchtime,
                                                                     self.stat_check(self.perf_dict, 'datastore.numberReadAveraged.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
@@ -261,7 +253,7 @@ class vCenter(object):
                                                                     statInt)
                         DatastoreIORead = (float(sum(statDatastoreIORead[0].value[0].value)) / statInt)
 
-                        statDatastoreIOWrite = self.build_perf_query(self.SI.content,
+                        statDatastoreIOWrite = self.build_perf_query(self.serviceInstance.content,
                                                                     self.vchtime,
                                                                     self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
@@ -270,7 +262,7 @@ class vCenter(object):
                         DatastoreIOWrite = (float(sum(statDatastoreIOWrite[0].value[0].value)) / statInt)
 
                         # Datastore Average Latency
-                        statDatastoreLatRead = self.build_perf_query(self.SI.content,
+                        statDatastoreLatRead = self.build_perf_query(self.serviceInstance.content,
                                                                     self.vchtime,
                                                                     self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
@@ -279,7 +271,7 @@ class vCenter(object):
                         DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
                         DatastoreLatRead = "{:.0f}".format(DatastoreLatRead) if DatastoreLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatRead, bcolors.ENDC)
 
-                        statDatastoreLatWrite = self.build_perf_query(self.SI.content,
+                        statDatastoreLatWrite = self.build_perf_query(self.serviceInstance.content,
                                                                     self.vchtime,
                                                                     self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average'),
                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
@@ -320,18 +312,17 @@ class vCenter(object):
                                                                                                                                                             VirtualdiskLatRead,
                                                                                                                                                             VirtualdiskLatWrite))
                     # Memory Balloon
-                    statMemoryBalloon = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, statInt)
+                    statMemoryBalloon = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, statInt)
                     memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
                     memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon <= 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
 
                     # Memory Swapped
-                    statMemorySwapped = self.build_perf_query(self.SI.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, statInt)
+                    statMemorySwapped = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, statInt)
                     memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
                     memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped <= 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
                     memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
 
                 else:
-                    disk_list.append('Name: {} \r\n'
                                      '                     Size: {:.1f} GB \r\n'
                                      '                     Thin: {} \r\n'
                                      '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
@@ -405,12 +396,12 @@ class vCenter(object):
         if annotation is not None and annotation != "":
             print("Notes              : {}".format(annotation))
         # print(self.vsanPerfSystem.VsanPerfGetSupportedEntityTypes())
-        # metrics = self.get_metric_with_instance(self.SI.content, vm, self.vchtime, interval)
+        # metrics = self.get_metric_with_instance(self.serviceInstance.content, vm, self.vchtime, interval)
         # for metric in metrics:
         #     print("ID: {}, Instance: {}".format(self.perf_dict.keys()[self.perf_dict.values().index(metric.counterId)], metric.instance))
 
     def search_vm_by_name(self, name, name_contain=False):
-        content = self.SI.content
+        content = self.serviceInstance.content
         root_folder = content.rootFolder
         # entity_stack = root_folder.childEntity
         objView = content.viewManager.CreateContainerView(root_folder,
@@ -431,7 +422,7 @@ class vCenter(object):
 
     def search_vm_by_ip(self, ip, custom_fields=False):
         obj = []
-        content = self.SI.content
+        content = self.serviceInstance.content
         root_folder = content.rootFolder
 
         if not NetworkCheck.checkIP(ip):
@@ -463,7 +454,7 @@ class vCenter(object):
             print("MAC address {} is invalid.".format(mac))
             return obj
 
-        content = self.SI.content
+        content = self.serviceInstance.content
         root_folder = content.rootFolder
         objView = content.viewManager.CreateContainerView(root_folder,
                                                           [vim.VirtualMachine],
@@ -481,7 +472,7 @@ class vCenter(object):
 
     def search_vm_by_hostname(self, hostname):
         obj = []
-        search_obj = self.SI.content.searchIndex.FindByDnsName(None,
+        search_obj = self.serviceInstance.content.searchIndex.FindByDnsName(None,
                                                                hostname,
                                                                True)
         if search_obj:
@@ -489,7 +480,7 @@ class vCenter(object):
         return obj
 
     def search_vm_by_task(self, task):
-        content = self.SI.content
+        content = self.serviceInstance.content
         root_folder = content.rootFolder
         objView = content.viewManager.CreateContainerView(root_folder,
                                                           [vim.VirtualMachine],
