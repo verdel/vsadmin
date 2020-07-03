@@ -56,9 +56,10 @@ class ComplexCLI(click.MultiCommand):
 @click.option('-p', '--password', hide_input=True,
               default=lambda: os.environ.get('VSADMIN_PASSWORD'),
               help='Password for vSphere.')
-@click.option('-s', '--server', default='vc02.rk.local',
-              show_default=True, help='vCenter address.')
-@click.option('--disable-ssl-verification', default=True,
+@click.option('-s', '--server',
+              default=lambda: os.environ.get('VSADMIN_SERVER'),
+              help='vCenter address.')
+@click.option('--disable-ssl-verification', is_flag=True, default=True,
               show_default=True, help='Disable SSL verification.')
 
 @pass_context

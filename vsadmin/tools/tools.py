@@ -6,8 +6,9 @@ import ssl
 import requests
 import vsadmin.tools.vsanapiutils
 import vsadmin.tools.vsanmgmtObjects
+import vsadmin.tools.vsanStoragePolicy
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
-from pyVmomi import vim
+from pyVmomi import pbm, vim
 from pyVim.connect import SmartConnect, SmartConnectNoSSL, Disconnect
 from datetime import timedelta
 
@@ -83,6 +84,9 @@ class vCenter(object):
         if not self.serviceInstance:
             raise SystemExit("Unable to connect to host with supplied info.")
 
+        self.pbm_content = vsadmin.tools.vsanStoragePolicy.PbmConnect(self.serviceInstance._stub,
+                                                                 self.disable_ssl_verification)
+        self.pm = self.pbm_content.profileManager
 
         self.lastnetworkinfokey = self.get_customfield_key('LastNetworkInfo')
 
@@ -299,14 +303,22 @@ class vCenter(object):
                                                                                                                                                         DatastoreLatWrite))
                             
                     else:
+                        pmObjectType = pbm.ServerObjectRef.ObjectType("virtualDiskId")
+                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId,
+                                                                       each_vm_hardware.key),
+                                                                       objectType=pmObjectType)
+                        profiles = vsadmin.tools.vsanStoragePolicy.GetStorageProfiles(self.pm, pmRef)
+                        storagePolicy = vsadmin.tools.vsanStoragePolicy.ShowStorageProfile(profiles=profiles, verbose=True)
                         disk_list.append('Name: {} \r\n'
                                      '                     Size: {:.1f} GB \r\n'
                                      '                     Thin: {} \r\n'
                                      '                     File: {} \r\n'
+                                     '                     Storage Policy: {}'
                                      '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'.format(each_vm_hardware.deviceInfo.label,
                                                                                                                                                             each_vm_hardware.capacityInKB / 1024 / 1024,
                                                                                                                                                             each_vm_hardware.backing.thinProvisioned,
                                                                                                                                                             each_vm_hardware.backing.fileName,
+                                                                                                                                                            storagePolicy,
                                                                                                                                                             VirtualdiskIORead,
                                                                                                                                                             VirtualdiskIOWrite,
                                                                                                                                                             VirtualdiskLatRead,
@@ -323,12 +335,30 @@ class vCenter(object):
                     memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
 
                 else:
+                    if each_vm_hardware.backing.datastore.summary.type != 'vsan':
+                        disk_list.append('Name: {} \r\n'
+                                        '                     Size: {:.1f} GB \r\n'
+                                        '                     Thin: {} \r\n'
+                                        '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
+                                                                               each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                               each_vm_hardware.backing.thinProvisioned,
+                                                                               each_vm_hardware.backing.fileName))
+                    else:
+                        pmObjectType = pbm.ServerObjectRef.ObjectType("virtualDiskId")
+                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId,
+                                                                       each_vm_hardware.key),
+                                                                       objectType=pmObjectType)
+                        profiles = vsadmin.tools.vsanStoragePolicy.GetStorageProfiles(self.pm, pmRef)
+                        storagePolicy = vsadmin.tools.vsanStoragePolicy.ShowStorageProfile(profiles=profiles, verbose=False)
+                        disk_list.append('Name: {} \r\n'
                                      '                     Size: {:.1f} GB \r\n'
                                      '                     Thin: {} \r\n'
-                                     '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
-                                                                            each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                            each_vm_hardware.backing.thinProvisioned,
-                                                                            each_vm_hardware.backing.fileName))
+                                     '                     File: {} \r\n'
+                                     '                     Storage Policy: {}'.format(each_vm_hardware.deviceInfo.label,
+                                                                                      each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                      each_vm_hardware.backing.thinProvisioned,
+                                                                                      each_vm_hardware.backing.fileName,
+                                                                                      storagePolicy))
 
                     memory = "{} MB ({:.1f} GB)".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024))
 
@@ -351,6 +381,16 @@ class vCenter(object):
         print("Number of vCPUs    : {}".format(summary.config.numCpu))
         print("Memory             : {}".format(memory))
         print("VM .vmx Path       : {}".format(summary.config.vmPathName))
+
+        vmxDatastoreName = re.match(r'\[(.*)\]',summary.config.vmPathName).group(1)
+        vmxDatastore = self.find_datastore_by_name(vmxDatastoreName)
+        if vmxDatastore.summary.type == 'vsan':
+            pmObjectType = pbm.ServerObjectRef.ObjectType("virtualMachine")
+            pmRef = pbm.ServerObjectRef(key=vm._moId,
+                                        objectType=pmObjectType)
+            profiles = vsadmin.tools.vsanStoragePolicy.GetStorageProfiles(self.pm, pmRef)
+            storagePolicy = vsadmin.tools.vsanStoragePolicy.ShowStorageProfile(profiles=profiles, verbose=verbose)
+            print("                     Storage Policy: {}".format(storagePolicy))
 
         print("Virtual Disks      :")
         if len(disk_list) > 0:
@@ -399,6 +439,27 @@ class vCenter(object):
         # metrics = self.get_metric_with_instance(self.serviceInstance.content, vm, self.vchtime, interval)
         # for metric in metrics:
         #     print("ID: {}, Instance: {}".format(self.perf_dict.keys()[self.perf_dict.values().index(metric.counterId)], metric.instance))
+
+    def get_all_objs(self, vimtype, folder=None, recurse=True):
+        if not folder:
+            folder = self.serviceInstance.content.rootFolder
+        obj = {}
+        container = self.serviceInstance.content.viewManager.CreateContainerView(folder, vimtype, recurse)
+        for managed_object_ref in container.view:
+            obj.update({managed_object_ref: managed_object_ref.name})
+        return obj
+
+    def find_object_by_name(self, name, obj_type, folder=None, recurse=True):
+        if not isinstance(obj_type, list):
+            obj_type = [obj_type]
+        objects = self.get_all_objs(obj_type, folder=folder, recurse=recurse)
+        for obj in objects:
+            if obj.name == name:
+                return obj
+        return None
+
+    def find_datastore_by_name(self, datastore_name):
+        return self.find_object_by_name(datastore_name, [vim.Datastore])
 
     def search_vm_by_name(self, name, name_contain=False):
         content = self.serviceInstance.content

@@ -16,23 +16,17 @@ with open('vsadmin/__init__.py') as f:
             version = version.strip("'")
             continue
 
-with open(path.join(here, 'README.rst'), encoding='utf-8') as readme_file:
+with open(path.join(here, 'README.md'), encoding='utf-8') as readme_file:
     readme = readme_file.read()
 
-with open(path.join(here, 'HISTORY.rst'), encoding='utf-8') as history_file:
-    history = history_file.read().replace('.. :changelog:', '')
-
-requirements = [
-    'pyvmomi',
-    'click',
-    'requests'
-]
+with open(path.join(here, 'requirements.txt'), encoding='utf-8') as requirements_file:
+    requirements = requirements_file.read()
 
 setup(
     name='vsadmin',
     version=version,
     description='Command line interface to Vmware vSphere.',
-    long_description=readme + '\n\n' + history,
+    long_description=readme,
     author='Vadim Aleksandrov',
     author_email='valeksandrov@me.com',
     url='https://github.com/verdel/vsadmin',
@@ -43,12 +37,11 @@ setup(
     keywords='vsadmin',
     license="MIT",
     classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
-        'Intended Audience :: Developers',
+        'Environment :: Console',
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: End Users/Desktop',
         'License :: OSI Approved :: MIT License',
         'Natural Language :: English',
-        "Programming Language :: Python :: 2",
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
