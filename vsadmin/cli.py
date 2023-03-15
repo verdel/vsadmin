@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import os
-import sys
 import click
 
 CONTEXT_SETTINGS = dict(auto_envvar_prefix='VSADMIN')
@@ -39,14 +38,12 @@ class ComplexCLI(click.MultiCommand):
         return rv
 
     def get_command(self, ctx, name):
-        try:
-            if sys.version_info[0] == 2:
-                name = name.encode('ascii', 'replace')
-            mod = __import__('vsadmin.commands.cmd_' + name,
-                             None, None, ['cli'])
-        except ImportError:
-            return
-        return mod.cli
+        ns = {}
+        fn = os.path.join(cmd_folder, 'cmd_' + name + '.py')
+        with open(fn) as f:
+            code = compile(f.read(), fn, 'exec')
+            eval(code, ns, ns)
+        return ns['cli']
 
 
 @click.command(cls=ComplexCLI, context_settings=CONTEXT_SETTINGS)

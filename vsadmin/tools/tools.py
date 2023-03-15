@@ -85,7 +85,7 @@ class vCenter(object):
             raise SystemExit("Unable to connect to host with supplied info.")
 
         self.pbm_content = vsadmin.tools.vsanStoragePolicy.PbmConnect(self.serviceInstance._stub,
-                                                                 self.disable_ssl_verification)
+                                                                      self.disable_ssl_verification)
         self.pm = self.pbm_content.profileManager
 
         self.lastnetworkinfokey = self.get_customfield_key('LastNetworkInfo')
@@ -128,13 +128,6 @@ class vCenter(object):
                                                    instance=instance)
         startTime = vchtime - timedelta(minutes=(interval + 1))
         endTime = vchtime - timedelta(minutes=1)
-        spec = vim.cluster.VsanPerfQuerySpec(
-                interval=20,
-                endTime=endTime,
-                entityRefId=entity,
-                labels=labels,
-                startTime=startTime
-            )
         query = vim.PerformanceManager.QuerySpec(intervalId=20,
                                                  entity=vm,
                                                  metricId=[metricId],
@@ -204,10 +197,25 @@ class vCenter(object):
             return None
 
     def print_vm_info(self, vm, interval=20, verbose=False):
-        statInt = interval * 3  # There are 3 20s samples in each minute
+        statInt = interval
         summary = vm.summary
         disk_list = []
         vm_hardware = vm.config.hardware
+
+        if summary.runtime.powerState == "poweredOn" and verbose:
+            # Memory Balloon
+            statMemoryBalloon = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, statInt)
+            memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
+            memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon <= 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
+
+            # Memory Swapped
+            statMemorySwapped = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, statInt)
+            memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
+            memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped <= 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
+            memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
+        else:
+            memory = "{} MB ({:.1f} GB)".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024))
+
         for each_vm_hardware in vm_hardware.device:
             if (each_vm_hardware.key >= 2000) and (each_vm_hardware.key < 3000):
                 if summary.runtime.powerState == "poweredOn" and verbose:
@@ -258,109 +266,94 @@ class vCenter(object):
                         DatastoreIORead = (float(sum(statDatastoreIORead[0].value[0].value)) / statInt)
 
                         statDatastoreIOWrite = self.build_perf_query(self.serviceInstance.content,
-                                                                    self.vchtime,
-                                                                    self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average'),
-                                                                    each_vm_hardware.backing.datastore.info.vmfs.uuid,
-                                                                    vm,
-                                                                    statInt)
+                                                                     self.vchtime,
+                                                                     self.stat_check(self.perf_dict, 'datastore.numberWriteAveraged.average'),
+                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                     vm,
+                                                                     statInt)
                         DatastoreIOWrite = (float(sum(statDatastoreIOWrite[0].value[0].value)) / statInt)
 
                         # Datastore Average Latency
                         statDatastoreLatRead = self.build_perf_query(self.serviceInstance.content,
-                                                                    self.vchtime,
-                                                                    self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average'),
-                                                                    each_vm_hardware.backing.datastore.info.vmfs.uuid,
-                                                                    vm,
-                                                                    statInt)
+                                                                     self.vchtime,
+                                                                     self.stat_check(self.perf_dict, 'datastore.totalReadLatency.average'),
+                                                                     each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                     vm,
+                                                                     statInt)
                         DatastoreLatRead = (float(sum(statDatastoreLatRead[0].value[0].value)) / statInt)
                         DatastoreLatRead = "{:.0f}".format(DatastoreLatRead) if DatastoreLatRead < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatRead, bcolors.ENDC)
 
                         statDatastoreLatWrite = self.build_perf_query(self.serviceInstance.content,
-                                                                    self.vchtime,
-                                                                    self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average'),
-                                                                    each_vm_hardware.backing.datastore.info.vmfs.uuid,
-                                                                    vm,
-                                                                    statInt)
+                                                                      self.vchtime,
+                                                                      self.stat_check(self.perf_dict, 'datastore.totalWriteLatency.average'),
+                                                                      each_vm_hardware.backing.datastore.info.vmfs.uuid,
+                                                                      vm,
+                                                                      statInt)
                         DatastoreLatWrite = (float(sum(statDatastoreLatWrite[0].value[0].value)) / statInt)
                         DatastoreLatWrite = "{:.0f}".format(DatastoreLatWrite) if DatastoreLatWrite < 25 else "{}{:.0f}{}".format(bcolors.FAIL, DatastoreLatWrite, bcolors.ENDC)
 
                         disk_list.append('Name: {} \r\n'
-                                        '                     Size: {:.1f} GB \r\n'
-                                        '                     Thin: {} \r\n'
-                                        '                     File: {}\r\n'
-                                        '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'
-                                        '                     Datastore: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms'.format(each_vm_hardware.deviceInfo.label,
-                                                                                                                                                        each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                                                                                                        each_vm_hardware.backing.thinProvisioned,
-                                                                                                                                                        each_vm_hardware.backing.fileName,
-                                                                                                                                                        VirtualdiskIORead,
-                                                                                                                                                        VirtualdiskIOWrite,
-                                                                                                                                                        VirtualdiskLatRead,
-                                                                                                                                                        VirtualdiskLatWrite,
-                                                                                                                                                        DatastoreIORead,
-                                                                                                                                                        DatastoreIOWrite,
-                                                                                                                                                        DatastoreLatRead,
-                                                                                                                                                        DatastoreLatWrite))
-                            
+                                         '                     Size: {:.1f} GB \r\n'
+                                         '                     Thin: {} \r\n'
+                                         '                     File: {}\r\n'
+                                         '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'
+                                         '                     Datastore: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms'.format(each_vm_hardware.deviceInfo.label,
+                                                                                                                                                         each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                                                                                         each_vm_hardware.backing.thinProvisioned,
+                                                                                                                                                         each_vm_hardware.backing.fileName,
+                                                                                                                                                         VirtualdiskIORead,
+                                                                                                                                                         VirtualdiskIOWrite,
+                                                                                                                                                         VirtualdiskLatRead,
+                                                                                                                                                         VirtualdiskLatWrite,
+                                                                                                                                                         DatastoreIORead,
+                                                                                                                                                         DatastoreIOWrite,
+                                                                                                                                                         DatastoreLatRead,
+                                                                                                                                                         DatastoreLatWrite))
+
                     else:
                         pmObjectType = pbm.ServerObjectRef.ObjectType("virtualDiskId")
-                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId,
-                                                                       each_vm_hardware.key),
-                                                                       objectType=pmObjectType)
+                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId, each_vm_hardware.key),
+                                                    objectType=pmObjectType)
                         profiles = vsadmin.tools.vsanStoragePolicy.GetStorageProfiles(self.pm, pmRef)
                         storagePolicy = vsadmin.tools.vsanStoragePolicy.ShowStorageProfile(profiles=profiles, verbose=True)
                         disk_list.append('Name: {} \r\n'
-                                     '                     Size: {:.1f} GB \r\n'
-                                     '                     Thin: {} \r\n'
-                                     '                     File: {} \r\n'
-                                     '                     Storage Policy: {}'
-                                     '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'.format(each_vm_hardware.deviceInfo.label,
-                                                                                                                                                            each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                                                                                                            each_vm_hardware.backing.thinProvisioned,
-                                                                                                                                                            each_vm_hardware.backing.fileName,
-                                                                                                                                                            storagePolicy,
-                                                                                                                                                            VirtualdiskIORead,
-                                                                                                                                                            VirtualdiskIOWrite,
-                                                                                                                                                            VirtualdiskLatRead,
-                                                                                                                                                            VirtualdiskLatWrite))
-                    # Memory Balloon
-                    statMemoryBalloon = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.vmmemctl.average')), "", vm, statInt)
-                    memoryBalloon = (float(sum(statMemoryBalloon[0].value[0].value) / 1024) / statInt)
-                    memoryBalloon = "{:.1f}".format(memoryBalloon) if memoryBalloon <= 0 else "{}{:.1f}{}".format(bcolors.WARNING, memoryBalloon, bcolors.ENDC)
-
-                    # Memory Swapped
-                    statMemorySwapped = self.build_perf_query(self.serviceInstance.content, self.vchtime, (self.stat_check(self.perf_dict, 'mem.swapped.average')), "", vm, statInt)
-                    memorySwapped = (float(sum(statMemorySwapped[0].value[0].value) / 1024) / statInt)
-                    memorySwapped = "{:.1f}".format(memorySwapped) if memorySwapped <= 0 else "{}{:.1f}{}".format(bcolors.FAIL, memorySwapped, bcolors.ENDC)
-                    memory = "{} MB ({:.1f} GB) [Ballooned: {} MB, Swapped: {} MB]".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024), memoryBalloon, memorySwapped)
-
+                                         '                     Size: {:.1f} GB \r\n'
+                                         '                     Thin: {} \r\n'
+                                         '                     File: {} \r\n'
+                                         '                     Storage Policy: {}'
+                                         '                     VirtualDisk: IORead-{:.0f}, IOWrite-{:.0f}, Latency Read-{} ms, Latency Write-{} ms \r\n'.format(each_vm_hardware.deviceInfo.label,
+                                                                                                                                                                each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                                                                                                each_vm_hardware.backing.thinProvisioned,
+                                                                                                                                                                each_vm_hardware.backing.fileName,
+                                                                                                                                                                storagePolicy,
+                                                                                                                                                                VirtualdiskIORead,
+                                                                                                                                                                VirtualdiskIOWrite,
+                                                                                                                                                                VirtualdiskLatRead,
+                                                                                                                                                                VirtualdiskLatWrite))
                 else:
                     if each_vm_hardware.backing.datastore.summary.type != 'vsan':
                         disk_list.append('Name: {} \r\n'
-                                        '                     Size: {:.1f} GB \r\n'
-                                        '                     Thin: {} \r\n'
-                                        '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
-                                                                               each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                               each_vm_hardware.backing.thinProvisioned,
-                                                                               each_vm_hardware.backing.fileName))
+                                         '                     Size: {:.1f} GB \r\n'
+                                         '                     Thin: {} \r\n'
+                                         '                     File: {}'.format(each_vm_hardware.deviceInfo.label,
+                                                                                each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                each_vm_hardware.backing.thinProvisioned,
+                                                                                each_vm_hardware.backing.fileName))
                     else:
                         pmObjectType = pbm.ServerObjectRef.ObjectType("virtualDiskId")
-                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId,
-                                                                       each_vm_hardware.key),
-                                                                       objectType=pmObjectType)
+                        pmRef = pbm.ServerObjectRef(key="{}:{}".format(vm._moId, each_vm_hardware.key),
+                                                    objectType=pmObjectType)
                         profiles = vsadmin.tools.vsanStoragePolicy.GetStorageProfiles(self.pm, pmRef)
                         storagePolicy = vsadmin.tools.vsanStoragePolicy.ShowStorageProfile(profiles=profiles, verbose=False)
                         disk_list.append('Name: {} \r\n'
-                                     '                     Size: {:.1f} GB \r\n'
-                                     '                     Thin: {} \r\n'
-                                     '                     File: {} \r\n'
-                                     '                     Storage Policy: {}'.format(each_vm_hardware.deviceInfo.label,
-                                                                                      each_vm_hardware.capacityInKB / 1024 / 1024,
-                                                                                      each_vm_hardware.backing.thinProvisioned,
-                                                                                      each_vm_hardware.backing.fileName,
-                                                                                      storagePolicy))
-
-                    memory = "{} MB ({:.1f} GB)".format(summary.config.memorySizeMB, (float(summary.config.memorySizeMB) / 1024))
+                                         '                     Size: {:.1f} GB \r\n'
+                                         '                     Thin: {} \r\n'
+                                         '                     File: {} \r\n'
+                                         '                     Storage Policy: {}'.format(each_vm_hardware.deviceInfo.label,
+                                                                                          each_vm_hardware.capacityInKB / 1024 / 1024,
+                                                                                          each_vm_hardware.backing.thinProvisioned,
+                                                                                          each_vm_hardware.backing.fileName,
+                                                                                          storagePolicy))
 
         guestToolsRunningStatus = "{}{}{}".format(bcolors.OKGREEN, "Running", bcolors.ENDC) if vm.guest.toolsRunningStatus == "guestToolsRunning" else "{}{}{}".format(bcolors.FAIL, "Not running", bcolors.ENDC)
         guestToolsStatus = "{}{}{}".format(bcolors.OKGREEN, "OK", bcolors.ENDC) if vm.guest.toolsStatus == "toolsOk" else "{}{}{}".format(bcolors.FAIL, "Need Attention", bcolors.ENDC)
@@ -382,7 +375,7 @@ class vCenter(object):
         print("Memory             : {}".format(memory))
         print("VM .vmx Path       : {}".format(summary.config.vmPathName))
 
-        vmxDatastoreName = re.match(r'\[(.*)\]',summary.config.vmPathName).group(1)
+        vmxDatastoreName = re.match(r'\[(.*)\]', summary.config.vmPathName).group(1)
         vmxDatastore = self.find_datastore_by_name(vmxDatastoreName)
         if vmxDatastore.summary.type == 'vsan':
             pmObjectType = pbm.ServerObjectRef.ObjectType("virtualMachine")
@@ -435,10 +428,6 @@ class vCenter(object):
         annotation = summary.config.annotation
         if annotation is not None and annotation != "":
             print("Notes              : {}".format(annotation))
-        # print(self.vsanPerfSystem.VsanPerfGetSupportedEntityTypes())
-        # metrics = self.get_metric_with_instance(self.serviceInstance.content, vm, self.vchtime, interval)
-        # for metric in metrics:
-        #     print("ID: {}, Instance: {}".format(self.perf_dict.keys()[self.perf_dict.values().index(metric.counterId)], metric.instance))
 
     def get_all_objs(self, vimtype, folder=None, recurse=True):
         if not folder:
@@ -464,7 +453,6 @@ class vCenter(object):
     def search_vm_by_name(self, name, name_contain=False):
         content = self.serviceInstance.content
         root_folder = content.rootFolder
-        # entity_stack = root_folder.childEntity
         objView = content.viewManager.CreateContainerView(root_folder,
                                                           [vim.VirtualMachine],
                                                           True)
@@ -533,9 +521,7 @@ class vCenter(object):
 
     def search_vm_by_hostname(self, hostname):
         obj = []
-        search_obj = self.serviceInstance.content.searchIndex.FindByDnsName(None,
-                                                               hostname,
-                                                               True)
+        search_obj = self.serviceInstance.content.searchIndex.FindByDnsName(None, hostname, True)
         if search_obj:
             obj.append(search_obj)
         return obj
@@ -543,9 +529,7 @@ class vCenter(object):
     def search_vm_by_task(self, task):
         content = self.serviceInstance.content
         root_folder = content.rootFolder
-        objView = content.viewManager.CreateContainerView(root_folder,
-                                                          [vim.VirtualMachine],
-                                                          True)
+        objView = content.viewManager.CreateContainerView(root_folder, [vim.VirtualMachine], True)
         vmList = objView.view
         objView.Destroy()
         obj = []

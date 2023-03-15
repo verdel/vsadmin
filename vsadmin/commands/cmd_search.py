@@ -22,7 +22,7 @@ def cli(ctx, name, contains, mac, ip, custom_fields, hostname, task, verbose, in
     vm = None
     if name:
         if contains:
-            vm = vc.search_vm_by_name(name, 'contains')
+            vm = vc.search_vm_by_name(name, True)
         else:
             vm = vc.search_vm_by_name(name)
 
